@@ -44,14 +44,21 @@
 #endif
 
 // Number of maximum High/Low changes per packet.
-// We can handle up to (unsigned long) => 32 bit * 2 H/L changes per bit + 2 for sync
-#define RCSWITCH_MAX_CHANGES 67
+// We can handle up to (unsigned long) => 32 bit * 2 H/L changes per bit + 2 for sync - 67
+#define RCSWITCH_MAX_CHANGES 128
 
 #define PROTOCOL3_SYNC_FACTOR   71
 #define PROTOCOL3_0_HIGH_CYCLES  4
 #define PROTOCOL3_0_LOW_CYCLES  11
 #define PROTOCOL3_1_HIGH_CYCLES  9
 #define PROTOCOL3_1_LOW_CYCLES   6
+
+#define PROTOCOL4_PULSELENGHT    70
+#define PROTOCOL4_PREAMBLE       68
+#define PROTOCOL4_SYNC_FACTOR    22
+#define PROTOCOL4_HIGH_CYCLES    10
+#define PROTOCOL4_LOW_CYCLES     5
+
 
 class RCSwitch {
 
@@ -119,6 +126,8 @@ class RCSwitch {
     static bool receiveProtocol1(unsigned int changeCount);
     static bool receiveProtocol2(unsigned int changeCount);
     static bool receiveProtocol3(unsigned int changeCount);
+    static bool receiveProtocol4(unsigned int changeCount);
+    static bool receiveProtocol4bis(unsigned int changeCount);
     int nReceiverInterrupt;
     #endif
     int nTransmitterPin;

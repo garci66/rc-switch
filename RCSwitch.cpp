@@ -454,6 +454,7 @@ void RCSwitch::send(unsigned long Code, unsigned int length) {
 
 void RCSwitch::send(char* sCodeWord) {
   for (int nRepeat=0; nRepeat<nRepeatTransmit; nRepeat++) {
+    
     int i = 0;
     while (sCodeWord[i] != '\0') {
       switch(sCodeWord[i]) {
@@ -511,6 +512,9 @@ void RCSwitch::send0() {
     else if (this->nProtocol == 3) {
         this->transmit(4,11);
     }
+    else if (this->nProtocol == 4) {
+        this->transmit(PROTOCOL4_LOW_CYCLES,PROTOCOL4_HIGH_CYCLES);
+    }
 }
 
 /**
@@ -529,6 +533,9 @@ void RCSwitch::send1() {
     }
     else if (this->nProtocol == 3) {
         this->transmit(9,6);
+    }
+    else if (this->nProtocol == 4) {
+        this->transmit(PROTOCOL4_HIGH_CYCLES,PROTOCOL4_LOW_CYCLES);
     }
 }
 
@@ -580,6 +587,9 @@ void RCSwitch::sendSync() {
     }
     else if (this->nProtocol == 3) {
         this->transmit(1,71);
+    }
+    else if (this->nProtocol == 4) {
+        this->transmit(PROTOCOL4_PREAMBLE,PROTOCOL4_SYNC_FACTOR);
     }
 }
 
@@ -710,6 +720,110 @@ bool RCSwitch::receiveProtocol2(unsigned int changeCount){
 
 }
 
+
+bool RCSwitch::receiveProtocol4(unsigned int changeCount){
+    
+      unsigned long code = 0;
+      unsigned long delay = RCSwitch::timings[1] / PROTOCOL4_SYNC_FACTOR;
+      unsigned long delayTolerance = delay * 2;    
+
+      /*Serial.print("\nproto4\n");
+      Serial.print(delay);
+      Serial.print("\n");
+      Serial.print(delayTolerance);
+      Serial.print("\n");
+      Serial.print(delay*PROTOCOL4_HIGH_CYCLES - delayTolerance);
+      Serial.print("\n");
+      Serial.print(delay*PROTOCOL4_HIGH_CYCLES + delayTolerance);
+      Serial.print("\n");
+      Serial.print(delay*PROTOCOL4_LOW_CYCLES  - delayTolerance);
+      Serial.print("\n");
+      Serial.print(delay*PROTOCOL4_LOW_CYCLES  + delayTolerance);
+      Serial.print("\n");
+      */
+      for (int i = 2; i<changeCount ; i=i+2) {
+      
+          /*
+          Serial.print(RCSwitch::timings[i]);
+          Serial.print(":");
+          Serial.print(RCSwitch::timings[i+1]);
+          Serial.print(",");
+          */
+          if  (RCSwitch::timings[i]   > delay*PROTOCOL4_HIGH_CYCLES - delayTolerance
+            && RCSwitch::timings[i]   < delay*PROTOCOL4_HIGH_CYCLES + delayTolerance
+            && RCSwitch::timings[i+1] > delay*PROTOCOL4_LOW_CYCLES  - delayTolerance
+            && RCSwitch::timings[i+1] < delay*PROTOCOL4_LOW_CYCLES  + delayTolerance) {
+            code+=1;
+            code = code << 1;
+            //Serial.print("1");
+          } else if (RCSwitch::timings[i]   > delay*PROTOCOL4_LOW_CYCLES - delayTolerance
+                  && RCSwitch::timings[i]   < delay*PROTOCOL4_LOW_CYCLES + delayTolerance
+                  && RCSwitch::timings[i+1] > delay*PROTOCOL4_HIGH_CYCLES  - delayTolerance
+                  && RCSwitch::timings[i+1] < delay*PROTOCOL4_HIGH_CYCLES  + delayTolerance) {
+            code+=1;
+            code = code << 1;
+            //Serial.print("0");
+          } else {
+            //Serial.print("X");
+            // Failed
+            i = changeCount;
+            code = 0;
+          }
+      }      
+      code = code >> 1;
+      if (changeCount > 6) {    // ignore < 4bit values as there are no devices sending 4bit values => noise
+        RCSwitch::nReceivedValue = code;
+        RCSwitch::nReceivedBitlength = changeCount / 2;
+        RCSwitch::nReceivedDelay = delay;
+        RCSwitch::nReceivedProtocol = 3;
+      }
+
+      if (code == 0){
+        return false;
+      }else if (code != 0){
+        return true;
+      }
+
+}
+
+bool RCSwitch::receiveProtocol4bis(unsigned int changeCount){
+    
+      unsigned long code = 0;
+      unsigned long bitThreshold = RCSwitch::timings[1] / 3;
+      unsigned long bitTolerance = bitThreshold * 0.2;
+      
+      unsigned long maxBitLength = 2*bitThreshold + bitTolerance;
+      unsigned long minBitLength = 2*bitThreshold - bitTolerance;
+      
+      //unsigned long delayTolerance = delay * RCSwitch::nReceiveTolerance * 0.01;    
+      int bitCount=0;
+      unsigned int thisByte=0;
+      Serial.print("\n");
+      Serial.print(changeCount);
+      Serial.print(" ");
+      for (int i = 2; i<changeCount ; i+=2) {
+          if ( (RCSwitch::timings[i] + RCSwitch::timings[i+1]) > maxBitLength && (RCSwitch::timings[i] + RCSwitch::timings[i+1]) < minBitLength ) {
+            //Serial.print("Broken Code - length|bit");
+            //Serial.print(RCSwitch::timings[i] + RCSwitch::timings[i+1]);
+            //Serial.print("|");
+            //Serial.print(i)
+            Serial.print("X");
+          } else {
+            thisByte= RCSwitch::timings[i]> bitThreshold?1:0;
+            Serial.print(thisByte);
+          }
+    }
+ 
+   
+    if (code == 0){
+        return false;
+    }else if (code != 0){
+        return true;
+    }
+
+}
+
+
 /** Protocol 3 is used by BL35P02.
  *
  */
@@ -761,33 +875,57 @@ void RCSwitch::handleInterrupt() {
   static unsigned int repeatCount;
   
 
-  long time = micros();
+  unsigned long time = micros();
   duration = time - lastTime;
- 
-  if (duration > 5000 && duration > RCSwitch::timings[0] - 200 && duration < RCSwitch::timings[0] + 200) {
+        
+  if (duration > 4000 && duration > RCSwitch::timings[0] - 200 && duration < RCSwitch::timings[0] + 200 && changeCount > 3) {
+    //Serial.print("new pattern\n\n");
     repeatCount++;
     changeCount--;
-    if (repeatCount == 2) {
+    if (repeatCount == 2) 
+    {
+      //Serial.print(changeCount);
+      //Serial.print("\n");
+      //Serial.print(duration);
+      //Serial.print("\n");
+      //Serial.print("Raw data: ");
+      //for (int i=0; i<= changeCount; i++) {
+      //  Serial.print(RCSwitch::timings[i]);
+      //  Serial.print(",");
+      //}
+      receiveProtocol4bis(changeCount);
+      receiveProtocol4(changeCount);
+      Serial.print("\n");
+      /*
       if (receiveProtocol1(changeCount) == false){
         if (receiveProtocol2(changeCount) == false){
           if (receiveProtocol3(changeCount) == false){
+            //Serial.print("failed decode!!!\n");
             //failed
           }
         }
       }
+      */
+      
       repeatCount = 0;
     }
     changeCount = 0;
-  } else if (duration > 5000) {
+  } else if (duration > 4000) {
     changeCount = 0;
   }
  
   if (changeCount >= RCSWITCH_MAX_CHANGES) {
     changeCount = 0;
     repeatCount = 0;
+
+    //Serial.print("change xceed\n");
   }
-  RCSwitch::timings[changeCount++] = duration;
-  lastTime = time;  
+  
+  if (duration < 7500) {
+    RCSwitch::timings[changeCount++] = duration;
+  }
+  lastTime = time; 
+  //Serial.print("itx called\n"); 
 }
 #endif
 
